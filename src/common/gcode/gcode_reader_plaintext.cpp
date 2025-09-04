@@ -25,7 +25,7 @@ IGcodeReader::Result_t PlainGcodeReader::stream_gcode_start(uint32_t offset) {
 }
 AbstractByteReader *PlainGcodeReader::stream_thumbnail_start(uint16_t expected_width, uint16_t expected_height, ImgType expected_type, bool allow_larger) {
     // search for begining of thumbnail in file
-    static const size_t MAX_SEARCH_LINES = 2048;
+    static const size_t MAX_SEARCH_LINES = 4096;
     // We want to do simple scan through beginning of file, so we use gcode stream for that, it doesn't skip towards end of file like metadata stream
     if (stream_gcode_start() != IGcodeReader::Result_t::RESULT_OK) {
         return nullptr;
@@ -33,9 +33,10 @@ AbstractByteReader *PlainGcodeReader::stream_thumbnail_start(uint16_t expected_w
 
     GcodeBuffer buffer;
     unsigned int lines_searched = 0;
-    while (stream_get_line(buffer, Continuations::Discard) == Result_t::RESULT_OK && (lines_searched++) <= MAX_SEARCH_LINES) {
+    bool is_thumbnail_larger = false;
+    while (stream_get_line(buffer, Continuations::Discard) == Result_t::RESULT_OK && (lines_searched++) <= MAX_SEARCH_LINES && (!is_thumbnail_larger || allow_larger)) {
         long unsigned int num_bytes = 0;
-        if (IsBeginThumbnail(buffer, expected_width, expected_height, expected_type, allow_larger, num_bytes)) {
+        if (IsBeginThumbnail(buffer, expected_width, expected_height, expected_type, allow_larger, num_bytes, is_thumbnail_larger)) {
             stream_mode_ = StreamMode::thumbnail;
             thumbnail_reader.gcode_reader = this;
             thumbnail_reader.thumbnail_size = num_bytes;
@@ -180,9 +181,11 @@ uint32_t PlainGcodeReader::get_gcode_stream_size() {
     return file_size;
 }
 
-bool PlainGcodeReader::IsBeginThumbnail(GcodeBuffer &buffer, uint16_t expected_width, uint16_t expected_height, ImgType expected_type, bool allow_larder, unsigned long &num_bytes) const {
+bool PlainGcodeReader::IsBeginThumbnail(GcodeBuffer &buffer, uint16_t expected_width, uint16_t expected_height, ImgType expected_type, bool allow_larger, unsigned long &num_bytes, bool &is_larger) const {
     constexpr const char thumbnailBegin_png[] = "; thumbnail begin "; // pozor na tu mezeru na konci
     constexpr const char thumbnailBegin_qoi[] = "; thumbnail_QOI begin "; // pozor na tu mezeru na konci
+
+    is_larger = false;
 
     const char *thumbnailBegin = nullptr;
     size_t thumbnailBeginSizeof = 0;
@@ -210,8 +213,9 @@ bool PlainGcodeReader::IsBeginThumbnail(GcodeBuffer &buffer, uint16_t expected_w
         lc = lc + thumbnailBeginSizeof - 1;
         int ss = sscanf(lc, "%ux%u %lu", &x, &y, &num_bytes);
         if (ss == 3) { // 3 uspesne prectene itemy - rozliseni
+            is_larger = (x >= expected_width && y >= expected_height);
             // je to platny zacatek thumbnailu, je to ten muj?
-            if ((x == expected_width && y == expected_height) || (allow_larder && x >= expected_width && y >= expected_height)) {
+            if ((x == expected_width && y == expected_height) || (allow_larger && is_larger)) {
                 // je to ten muj, ktery chci
                 return true;
             }
