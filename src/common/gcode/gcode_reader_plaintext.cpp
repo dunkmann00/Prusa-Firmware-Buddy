@@ -189,14 +189,22 @@ bool PlainGcodeReader::IsBeginThumbnail(GcodeBuffer &buffer, uint16_t expected_w
 
     const char *thumbnailBegin = nullptr;
     size_t thumbnailBeginSizeof = 0;
+    const char *wrongThumbnailBegin = nullptr;
+    size_t wrongThumbnailBeginSizeof = 0;
     switch (expected_type) {
     case ImgType::PNG:
         thumbnailBegin = thumbnailBegin_png;
         thumbnailBeginSizeof = sizeof(thumbnailBegin_png);
+
+        wrongThumbnailBegin = thumbnailBegin_qoi;
+        wrongThumbnailBeginSizeof = sizeof(thumbnailBegin_qoi);
         break;
     case ImgType::QOI:
         thumbnailBegin = thumbnailBegin_qoi;
         thumbnailBeginSizeof = sizeof(thumbnailBegin_qoi);
+
+        wrongThumbnailBegin = thumbnailBegin_png;
+        wrongThumbnailBeginSizeof = sizeof(thumbnailBegin_png);
         break;
     default:
         return false;
@@ -219,6 +227,13 @@ bool PlainGcodeReader::IsBeginThumbnail(GcodeBuffer &buffer, uint16_t expected_w
                 // je to ten muj, ktery chci
                 return true;
             }
+        }
+    } else if(!strncmp(lc, wrongThumbnailBegin, wrongThumbnailBeginSizeof - 1)) {
+        unsigned int x, y;
+        lc = lc + wrongThumbnailBeginSizeof - 1;
+        int ss = sscanf(lc, "%ux%u", &x, &y);
+        if (ss == 2) { // 2 uspesne prectene itemy - rozliseni
+            is_larger = (x >= expected_width && y >= expected_height);
         }
     }
     return false;
