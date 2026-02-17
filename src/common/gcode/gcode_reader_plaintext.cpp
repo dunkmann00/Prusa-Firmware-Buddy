@@ -237,7 +237,6 @@ bool PlainGcodeReader::IsBeginThumbnail(GcodeBuffer &buffer, uint16_t expected_w
             }
         }
     } else if (!strncmp(lc, wrongThumbnailBegin, wrongThumbnailBeginSizeof - 1)) {
-        is_begin_line = true;
         unsigned int x, y;
         lc = lc + wrongThumbnailBeginSizeof - 1;
         int ss = sscanf(lc, "%ux%u %lu", &x, &y, &num_bytes);
