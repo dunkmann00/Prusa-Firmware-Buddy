@@ -25,7 +25,7 @@ IGcodeReader::Result_t PlainGcodeReader::stream_gcode_start(uint32_t offset) {
 }
 AbstractByteReader *PlainGcodeReader::stream_thumbnail_start(uint16_t expected_width, uint16_t expected_height, ImgType expected_type, bool allow_larger) {
     // search for begining of thumbnail in file
-    static const size_t MAX_SEARCH_LINES = 2048;
+    static const size_t MAX_SEARCH_LINES = 10;
     // We want to do simple scan through beginning of file, so we use gcode stream for that, it doesn't skip towards end of file like metadata stream
     if (stream_gcode_start() != IGcodeReader::Result_t::RESULT_OK) {
         return nullptr;
@@ -33,14 +33,25 @@ AbstractByteReader *PlainGcodeReader::stream_thumbnail_start(uint16_t expected_w
 
     GcodeBuffer buffer;
     unsigned int lines_searched = 0;
+    bool is_begin_line = false;
     while (stream_get_line(buffer, Continuations::Discard) == Result_t::RESULT_OK && (lines_searched++) <= MAX_SEARCH_LINES) {
         long unsigned int num_bytes = 0;
-        if (IsBeginThumbnail(buffer, expected_width, expected_height, expected_type, allow_larger, num_bytes)) {
+        if (IsBeginThumbnail(buffer, expected_width, expected_height, expected_type, allow_larger, num_bytes, is_begin_line)) {
             stream_mode_ = StreamMode::thumbnail;
             thumbnail_reader.gcode_reader = this;
             thumbnail_reader.thumbnail_size = num_bytes;
             thumbnail_reader.base64_decoder.Reset();
             return &thumbnail_reader;
+        } else if (is_begin_line) {
+            lines_searched = 0;
+            auto pos = ftell(file.get());
+            long unsigned int lines = num_bytes / 78;
+            long unsigned int rem = num_bytes - (lines * 78);
+            long unsigned int text_bytes = lines * 81 + rem + 3;
+            // Jump over this thumbnails data since it isn't what we want
+            if (stream_gcode_start(pos+text_bytes) != IGcodeReader::Result_t::RESULT_OK) {
+                return nullptr;
+            }
         }
     }
 
@@ -180,7 +191,7 @@ uint32_t PlainGcodeReader::get_gcode_stream_size() {
     return file_size;
 }
 
-bool PlainGcodeReader::IsBeginThumbnail(GcodeBuffer &buffer, uint16_t expected_width, uint16_t expected_height, ImgType expected_type, bool allow_larder, unsigned long &num_bytes) const {
+bool PlainGcodeReader::IsBeginThumbnail(GcodeBuffer &buffer, uint16_t expected_width, uint16_t expected_height, ImgType expected_type, bool allow_larder, unsigned long &num_bytes, bool &is_begin_line) const {
     constexpr const char thumbnailBegin_png[] = "; thumbnail begin "; // pozor na tu mezeru na konci
     constexpr const char thumbnailBegin_qoi[] = "; thumbnail_QOI begin "; // pozor na tu mezeru na konci
 
@@ -196,6 +207,7 @@ bool PlainGcodeReader::IsBeginThumbnail(GcodeBuffer &buffer, uint16_t expected_w
         thumbnailBeginSizeof = sizeof(thumbnailBegin_qoi);
         break;
     default:
+        is_begin_line = false;
         return false;
     }
     // pokud zacina radka na ; thumbnail, lze se tim zacit zabyvat
@@ -204,7 +216,8 @@ bool PlainGcodeReader::IsBeginThumbnail(GcodeBuffer &buffer, uint16_t expected_w
     // ta -1 na size ma svuj vyznam - chci, aby strncmp NEporovnavalo ten null
     // znak na konci, cili abych se nemusel srat s tim, ze vstupni string je
     // delsi, cili aby to emulovalo chovani boost::starts_with()
-    if (!strncmp(lc, thumbnailBegin, thumbnailBeginSizeof - 1)) {
+    is_begin_line = !strncmp(lc, thumbnailBegin, thumbnailBeginSizeof - 1);
+    if (is_begin_line) {
         // zacatek thumbnailu
         unsigned int x, y;
         lc = lc + thumbnailBeginSizeof - 1;
