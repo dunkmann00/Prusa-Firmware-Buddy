@@ -46,7 +46,7 @@ AbstractByteReader *PlainGcodeReader::stream_thumbnail_start(uint16_t expected_w
             lines_searched = 0;
             auto pos = ftell(file.get());
             long unsigned int lines = num_bytes / 78;
-            long unsigned int rem = num_bytes - (lines * 78);
+            long unsigned int rem = num_bytes % 78;
             long unsigned int text_bytes = lines * 81 + rem + 3;
             // Jump over this thumbnails data since it isn't what we want
             if (stream_gcode_start(pos+text_bytes) != IGcodeReader::Result_t::RESULT_OK) {
