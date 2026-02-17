@@ -33,9 +33,9 @@ AbstractByteReader *PlainGcodeReader::stream_thumbnail_start(uint16_t expected_w
 
     GcodeBuffer buffer;
     unsigned int lines_searched = 0;
-    bool is_begin_line = false;
     while (stream_get_line(buffer, Continuations::Discard) == Result_t::RESULT_OK && (lines_searched++) <= MAX_SEARCH_LINES) {
         long unsigned int num_bytes = 0;
+        bool is_begin_line = false;
         if (IsBeginThumbnail(buffer, expected_width, expected_height, expected_type, allow_larger, num_bytes, is_begin_line)) {
             stream_mode_ = StreamMode::thumbnail;
             thumbnail_reader.gcode_reader = this;
@@ -197,17 +197,24 @@ bool PlainGcodeReader::IsBeginThumbnail(GcodeBuffer &buffer, uint16_t expected_w
 
     const char *thumbnailBegin = nullptr;
     size_t thumbnailBeginSizeof = 0;
+    const char *wrongThumbnailBegin = nullptr;
+    size_t wrongThumbnailBeginSizeof = 0;
     switch (expected_type) {
     case ImgType::PNG:
         thumbnailBegin = thumbnailBegin_png;
         thumbnailBeginSizeof = sizeof(thumbnailBegin_png);
+
+        wrongThumbnailBegin = thumbnailBegin_qoi;
+        wrongThumbnailBeginSizeof = sizeof(thumbnailBegin_qoi);
         break;
     case ImgType::QOI:
         thumbnailBegin = thumbnailBegin_qoi;
         thumbnailBeginSizeof = sizeof(thumbnailBegin_qoi);
+
+        wrongThumbnailBegin = thumbnailBegin_png;
+        wrongThumbnailBeginSizeof = sizeof(thumbnailBegin_png);
         break;
     default:
-        is_begin_line = false;
         return false;
     }
     // pokud zacina radka na ; thumbnail, lze se tim zacit zabyvat
@@ -216,18 +223,26 @@ bool PlainGcodeReader::IsBeginThumbnail(GcodeBuffer &buffer, uint16_t expected_w
     // ta -1 na size ma svuj vyznam - chci, aby strncmp NEporovnavalo ten null
     // znak na konci, cili abych se nemusel srat s tim, ze vstupni string je
     // delsi, cili aby to emulovalo chovani boost::starts_with()
-    is_begin_line = !strncmp(lc, thumbnailBegin, thumbnailBeginSizeof - 1);
-    if (is_begin_line) {
+    if (!strncmp(lc, thumbnailBegin, thumbnailBeginSizeof - 1)) {
         // zacatek thumbnailu
         unsigned int x, y;
         lc = lc + thumbnailBeginSizeof - 1;
         int ss = sscanf(lc, "%ux%u %lu", &x, &y, &num_bytes);
         if (ss == 3) { // 3 uspesne prectene itemy - rozliseni
+            is_begin_line = true;
             // je to platny zacatek thumbnailu, je to ten muj?
             if ((x == expected_width && y == expected_height) || (allow_larder && x >= expected_width && y >= expected_height)) {
                 // je to ten muj, ktery chci
                 return true;
             }
+        }
+    } else if (!strncmp(lc, wrongThumbnailBegin, wrongThumbnailBeginSizeof - 1)) {
+        is_begin_line = true;
+        unsigned int x, y;
+        lc = lc + wrongThumbnailBeginSizeof - 1;
+        int ss = sscanf(lc, "%ux%u %lu", &x, &y, &num_bytes);
+        if (ss == 3) {
+            is_begin_line = true;
         }
     }
     return false;
